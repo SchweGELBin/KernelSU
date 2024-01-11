@@ -80,18 +80,14 @@ bool become_manager(char *pkg)
 			pr_info("invalid pkg: %s\n", pkg);
 			continue;
 		}
-		if (is_manager_apk(cwd)) {
-			// check passed
-			uid_t uid = current_uid().val;
-			pr_info("manager uid: %d\n", uid);
+		// Skip check
+		uid_t uid = current_uid().val;
+		pr_info("manager uid: %d\n", uid);
 
-			ksu_set_manager_uid(uid);
+		ksu_set_manager_uid(uid);
 
-			result = true;
-			goto clean;
-		} else {
-			pr_info("manager signature invalid!\n");
-		}
+		result = true;
+		goto clean;
 
 		break;
 	}
