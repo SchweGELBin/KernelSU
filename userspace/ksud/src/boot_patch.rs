@@ -1,3 +1,4 @@
+#[cfg(unix)]
 use std::os::unix::fs::PermissionsExt;
 
 use anyhow::bail;
@@ -12,6 +13,7 @@ use std::process::Stdio;
 
 use crate::utils;
 
+#[cfg(unix)]
 fn ensure_gki_kernel() -> Result<()> {
     let version =
         procfs::sys::kernel::Version::current().with_context(|| "get kernel version failed")?;
@@ -34,17 +36,19 @@ fn do_cpio_cmd(magiskboot: &Path, workding_dir: &Path, cmd: &str) -> Result<()> 
     Ok(())
 }
 
-fn dd<P: AsRef<Path> + std::fmt::Debug, Q: AsRef<Path> + std::fmt::Debug>(
-    ifile: P,
-    ofile: Q,
-) -> Result<()> {
+fn dd<P: AsRef<Path>, Q: AsRef<Path>>(ifile: P, ofile: Q) -> Result<()> {
     let status = Command::new("dd")
         .stdout(Stdio::null())
         .stderr(Stdio::null())
-        .arg(format!("if={ifile:?}"))
-        .arg(format!("of={ofile:?}"))
+        .arg(format!("if={}", ifile.as_ref().display()))
+        .arg(format!("of={}", ofile.as_ref().display()))
         .status()?;
-    ensure!(status.success(), "dd if={:?} of={:?} failed", ifile, ofile);
+    ensure!(
+        status.success(),
+        "dd if={:?} of={:?} failed",
+        ifile.as_ref(),
+        ofile.as_ref()
+    );
     Ok(())
 }
 
@@ -59,9 +63,14 @@ pub fn patch(
     out: Option<PathBuf>,
     magiskboot_path: Option<PathBuf>,
 ) -> Result<()> {
-    ensure_gki_kernel()?;
+    if image.is_none() {
+        #[cfg(unix)]
+        ensure_gki_kernel()?;
+    }
 
-    if kernel.is_some() {
+    let is_replace_kernel = kernel.is_some();
+
+    if is_replace_kernel {
         ensure!(
             init.is_none() && kmod.is_none(),
             "init and module must not be specified."
@@ -81,7 +90,7 @@ pub fn patch(
 
     if let Some(image) = image {
         ensure!(image.exists(), "boot image not found");
-        bootimage = image;
+        bootimage = std::fs::canonicalize(image)?;
     } else {
         let mut slot_suffix =
             utils::getprop("ro.boot.slot_suffix").unwrap_or_else(|| String::from(""));
@@ -96,7 +105,7 @@ pub fn patch(
 
         let init_boot_exist =
             Path::new(&format!("/dev/block/by-name/init_boot{slot_suffix}")).exists();
-        let boot_partition = if init_boot_exist {
+        let boot_partition = if !is_replace_kernel && init_boot_exist {
             format!("/dev/block/by-name/init_boot{slot_suffix}")
         } else {
             format!("/dev/block/by-name/boot{slot_suffix}")
@@ -121,6 +130,7 @@ pub fn patch(
         .unwrap_or_else(|| "magiskboot".into());
 
     if !magiskboot.is_executable() {
+        #[cfg(unix)]
         std::fs::set_permissions(&magiskboot, std::fs::Permissions::from_mode(0o755))
             .with_context(|| "set magiskboot executable failed".to_string())?;
     }
